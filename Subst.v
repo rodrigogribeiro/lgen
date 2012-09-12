@@ -61,7 +61,7 @@ Module SUBST.
 
 
     Lemma map_and_mapsto : forall (s1 s2 : subst) (n : nat) (t t' : ty),
-      M.MapsTo n t' s1  /\  M.MapsTo n t (compose_subst s1 s2)
+      M.MapsTo n t' s1  /\  M.MapsTo n t (s1 @@ s2)
            ->  t = apply_subst_on_ty s2 t'.
     Proof.
       intros s1 s2 n t t' [H1 H2]. 
@@ -112,7 +112,7 @@ Module SUBST.
     Qed.    
 
     Lemma membership_and_apply_subst_to_subst_with_map:
-      forall (s1 s2 : subst) (n : nat), M.In n s1 -> M.In n (compose_subst s1 s2).
+      forall (s1 s2 : subst) (n : nat), M.In n s1 -> M.In n (s1 @@ s2).
     Proof.
       intros.
       unfold compose_subst, subst_diff, apply_subst_to_subst.
