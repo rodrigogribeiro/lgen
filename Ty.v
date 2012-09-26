@@ -1,4 +1,4 @@
-Require Import Arith_base.
+Require Import Arith_base List.
 
 Inductive ty : Set := 
   | tvar : nat -> ty 
@@ -21,3 +21,10 @@ Definition eq_ty_dec : forall (t t' : ty), {t = t'} + {t <> t'}.
    pose eq_nat_dec.
    decide equality.
 Defined.
+
+Fixpoint fv (t : ty) : list nat :=
+  match t with
+    | tvar n => n :: nil
+    | tcon n => nil
+    | tapp l r => fv l ++ fv r
+  end.

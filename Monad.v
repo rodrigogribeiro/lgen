@@ -12,6 +12,15 @@ Record state := mkState {
   st_list_gen  : list (ty * ty * ty) (** list of generalizations done by the algorithm **)
 }.
 
+Fixpoint list_sum (l : list nat) : nat :=
+  match l with
+    | nil => 0
+    | x :: xs => x + list_sum xs
+  end.
+
+Definition empty_state (t t' : ty) := 
+  mkState (list_sum (fv t ++ fv t')) nil.
+
 (** Concrete monad type definition **)
 
 Definition M (A : Type) := state -> (state * A).

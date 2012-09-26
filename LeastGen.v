@@ -42,7 +42,7 @@ Fixpoint lgen_aux (t t' : ty) : M ty :=
   end.
 
 Definition lgen (t t' : ty) : ty :=
-  snd (lgen_aux t t' (mkState 0 nil)).
+  snd (lgen_aux t t' (empty_state t t')).
 
 Section LGEN_Properties.
  Ltac my_simpl := 
@@ -54,63 +54,30 @@ Section LGEN_Properties.
        | [H : (tcon _) <=: (tapp _ _) |- _] => destruct H as [x Hx] ; inverts Hx
        | [|- exists _, TyOrder.apply_subst_on_ty _ (tvar ?n) = ?s] => 
          exists (M.add n s (@M.empty ty)) ; simpl ; rewrite add_o ; case_if*
-     end).
+       | [s : state |- _] => destruct s ; simpl in *
+     end) ; simpl ; auto.
   
   (** first property: generalization **)
 
-  Theorem lgen_is_gen : forall t t' s, lgen t t' = s -> s <=: t /\ s <=: t'.
+  Theorem lgen_is_gen : forall t t' s, exists s' t1, lgen_aux t t' s = (s',t1) /\ t1 <=: t /\ t1 <=: t'.
   Proof.
-    intros t ; induction t ; intros t' s H ; split ; 
-      cases* t' as Ht ; inverts H ; unfolds ; unfold lgen ; simpl.
-
-    exists (M.add 2 (tvar n) (@M.empty ty)). rewrite add_o. case_if*.
-     
-    exists (M.add 1 (tvar n) (@M.empty ty)). rewrite add_o. case_if*.
-
-    exists (M.add 1 (tvar n) (@M.empty ty)). rewrite add_o. case_if*.
-
-    exists (M.add 2 (tvar n0) (@M.empty ty)). rewrite add_o. case_if*.
-    
-    exists (M.add 1 (tcon n0) (@M.empty ty)). rewrite add_o. case_if*.
-
-    exists (M.add 1 (tapp TEMP1 TEMP2) (@M.empty ty)). rewrite add_o. case_if*.
-
-    exists (M.add 1 (tcon n) (@M.empty ty)). rewrite add_o. case_if*.
-
-    exists (M.add 0 (tcon n) (@M.empty ty)). case_if*.
-
-    exists (M.add 0 (tcon n) (@M.empty ty)). rewrite add_o. case_if*.
-
-    exists (M.add 1 (tvar n0) (@M.empty ty)). rewrite add_o. case_if*.
-
-    case_if*. exists (@M.empty ty). simpl. auto.
-
-    simpl. exists (M.add 0 (tcon n0) (@M.empty ty)). rewrite add_o. case_if*.
-    
-    exists (M.add 0 (tapp TEMP1 TEMP2) (@M.empty ty)). rewrite add_o. case_if*.
-
-    exists (M.add 1 (tapp t1 t2) (@M.empty ty)). rewrite add_o. case_if*.
-
-    exists (M.add 0 (tapp t1 t2) (@M.empty ty)). rewrite add_o. case_if*.
-
-    admit.
-
-    exists (M.add 1 (tvar n) (@M.empty ty)). rewrite add_o. case_if*.
-    
-    exists (M.add 0 (tcon n) (@M.empty ty)). rewrite add_o. case_if*.
-
-    admit.
-  Qed. 
-
-  Theorem lgen_is_least : forall t t' s, lgen t t' = s -> forall u, u <=: t /\ u <=: t' -> u <=: s.
-  Proof.
-    intro t ; induction t ; intros t' s H ; destruct t' ; intros u [Hu1 Hu2] ; destruct* u ; unfolds ; try my_simpl.
-
-    destruct Hu1 as [s1 Hu1]. destruct Hu2 as [s2 Hu2]. simpl in Hu1, Hu2.
-    rewrite <- Hu1 in H. rewrite Hu2 in H. unfolds in H. simpl in H. cases_if*.
-    simpl in H. subst. rewrite Hu2. exists (@M.empty ty). auto.
-
+    intros t ; induction t ; intros t' ; destruct t' ; my_simpl.
+    Focus 9.
+    intros s.
+    destruct (IHt1 t'1 s) as [s1 [t11 [H1 [H2 H3]]]] ; clear IHt1.
+    destruct (IHt2 t'2 s1) as [s2 [t22 [H4 [H5 H6]]]] ; clear IHt2.
+    exists s2 (tapp t11 t22) ; splits. unfolds.
+    rewrite H1. rewrite H2.
+    cases* (lgen_aux t1 t'1 s) as H7. cases* (lgen_aux t2 t'2 s0) as H8.
+    unfolds.
+    rewrite H1 ; clear H1. rewrite H2.
   Qed.
+
+  Theorem lgen_is_unique : forall t t' s, exists s' t1, lgen_aux t t' = (s',t1) /\
+    forall u, u <=: t /\ u <=: t' -> u <=: t1.
+  Proof.
+  Qed.
+ 
 End LGEN_Properties.
 
 
