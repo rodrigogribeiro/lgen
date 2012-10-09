@@ -23,44 +23,36 @@ Module TYORDER.
       rewrite compose_apply.
       rewrite* <- H1 in H2.
     Qed.
+    
+    (** some inversion lemmas **)
 
-    (** Definition of alpha-equivalence between types **)
-
-    Definition renaming_subst (s : subst) := forall n t, M.find n s = Some t -> exists v, t = tvar v.
-
-    Remark null_subst_is_renaming : renaming_subst (@M.empty ty).
+    Lemma leq_var_inv_r : forall t n, t <=: (tvar n) -> exists n', t = (tvar n').
     Proof.
-      unfolds ; introv H.
-      rewrite empty_o in H. congruence.
+      introv H. unfolds in H.
+      destruct H as [s H].
+      induction t ; try (inverts* H ; fail).
     Qed.
 
-    Remark compose_renaming : forall (s1 s2 : subst), renaming_subst s1 -> renaming_subst s2 -> renaming_subst (s1 @@ s2).
+    Lemma leq_var_inv_l : forall t n n', t = (tvar n') -> t <=: (tvar n).
     Proof.
-      introv H1 H2 ; unfold renaming_subst in * ; introv H3.
-      admit.
+      intros t n n' H ; subst ; unfolds ; 
+        exists (M.add n' (tvar n) (@M.empty ty)) ; simpl ; rewrite add_o ; cases_if*.
     Qed.
 
-    Inductive alpha_eq : ty -> ty -> Prop :=
-      | ae_var : forall n n', alpha_eq (tvar n) (tvar n')
-      | ae_con : forall n n', n = n' -> alpha_eq (tcon n) (tcon n')
-      | ae_app : forall t1 t2 t1' t2',  alpha_eq t1 t1' ->
-                                        alpha_eq t2 t2' ->
-                                        alpha_eq (tapp t1 t2) (tapp t1' t2').
-
-    Theorem alpha_eq_is_renaming : 
-      forall t t', alpha_eq t t' <-> exists s, renaming_subst s /\ apply_subst_on_ty s t = t'.
+    Lemma leq_con_inv_r : forall t n, t <=: (tcon n) -> t = tcon n \/ exists n', t = tvar n'.
     Proof.
-      intros t t' ; split ; intros H ; [induction H | idtac].
-        exists (M.add n (tvar n') (@M.empty ty)) ; split.
-          unfolds. introv H. rewrite add_o in H.
-          cases_if in H. inverts* H. 
-          rewrite empty_o in H. congruence.
-          simpl. rewrite add_o. cases_if*.         
-        subst. exists (@M.empty ty) ; split ; [apply null_subst_is_renaming | auto].
-        destruct IHalpha_eq1 as [s1 [Hr1 Ha1]].
-        destruct IHalpha_eq2 as [s2 [Hr2 Ha2]].
-        exists (s2 @@ s1) ; split. applys* compose_renaming. rewrite compose_apply ; auto.
-        simpl. admit.
-      admit.
+      introv H. unfolds in H. destruct H as [s H]. induction t ; try (inverts* H ; fail).
     Qed.
+
+    Lemma leq_app_inv_r : forall t l r, t <=: (tapp l r) -> (exists l' r', t = tapp l' r') \/ (exists n', t = tvar n').
+    Proof.
+      introv H. unfolds in H. destruct H as [s H]. induction t ; try (inverts* H ; fail).
+    Qed.
+
+    Lemma subst_app_compat : forall l l' r r' s, apply_subst_on_ty s (tapp l r) = (tapp l' r') <->
+                                                 apply_subst_on_ty s l = l' /\ apply_subst_on_ty s r = r'.
+    Proof.
+      intros l l' r r' s ; split ; intros H ; inverts* H.
+    Qed.
+                         
 End TYORDER.
