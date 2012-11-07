@@ -14,6 +14,10 @@ Module SUBST.
 
   Definition subst := M.t ty.
 
+  Definition id_subst := (@M.empty ty).
+
+  Definition dom (s : subst) := map (fun t => fst t) (M.elements s).
+
   Fixpoint apply_subst_on_ty (s : subst) (t : ty) : ty :=
       match t with
         | tvar v => match (M.find v s) with
@@ -23,6 +27,8 @@ Module SUBST.
         | tcon c => tcon c
         | tapp l r => tapp (apply_subst_on_ty s l) (apply_subst_on_ty s r)
       end.
+
+  Notation "s '#' t" := (apply_subst_on_ty s t) (at level 60).
   
   Definition apply_subst_to_subst (s1: subst) (s2: subst) := 
       M.map (apply_subst_on_ty s2) s1.
@@ -191,6 +197,17 @@ Module SUBST.
       congruence. right. unfold M.In ; exists t ; applys* M.find_2.
       simpl. rewrite* H2. 
       rewrite IHt1 ; rewrite IHt2 ; jauto.
+    Qed.
+
+    (** restricting a substitution **)
+
+    Definition restrict (s : subst) (vs : list nat) : subst :=
+      M.fold (fun (n : nat) (t : ty) (acc : subst) => 
+                if in_dec eq_nat_dec n vs then M.add n t acc else acc) (M.empty ty) s.
+
+    Lemma restrict_idem : forall t s, apply_subst_on_ty (restrict s (fv t)) t = apply_subst_on_ty s t.
+    Proof.
+      intros t ; induction t ; intros s ; simpl ; auto.
     Qed.
 End SUBST.
 

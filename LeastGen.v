@@ -18,51 +18,89 @@ Fixpoint fv_gen_list (l : gen_list) : list nat :=
                  end
   end.
 
-Inductive in_gen_list (t t' t1 : ty) : gen_list -> Prop :=
-  | igl_here : forall l, in_gen_list t t' t1 ((t,t',t1) :: l)
-  | igl_nextl : forall l a b c, a <> t -> b = t' -> in_gen_list t t' t1 l ->
-                                                 in_gen_list t t' t1 ((a,b,c) :: l)
-  | igl_nextr : forall l a b c, a = t ->  b <> t' -> in_gen_list t t' t1 l ->
-                                                     in_gen_list t t' t1 ((a,b,c) :: l)
-  | igl_nextb : forall l a b c, a <> t -> b <> t' -> in_gen_list t t' t1 l ->
-                                                     in_gen_list t t' t1 ((a,b,c)::l).
+Inductive wf_gen_list : gen_list -> Prop :=
+  | wf_nil : wf_gen_list nil
+  | wf_con : forall t1 t2 n l, wf_gen_list l -> tvar n <=: t1 -> tvar n <=: t2 -> wf_gen_list ((t1,t2,tvar n) :: l).
 
+Hint Constructors wf_gen_list.
 
-Hint Constructors in_gen_list.
+Fixpoint split_gen_list (g : gen_list) : option (subst * subst) :=
+  match g with
+    | nil => Some (M.empty ty, M.empty ty)
+    | x :: l =>
+      match x with
+        | (x1,x2,x3) =>
+          match split_gen_list l with
+            | Some (s1,s2) => 
+              match x3 with
+                | tvar n => Some (M.add n x1 s1, M.add n x2 s2)
+                | tcon n => 
+                  match x1, x2 with
+                    | tcon n1, tcon n2 => 
+                      match eq_nat_dec n n1, eq_nat_dec n1 n2 with
+                        | left _, left _ => Some (s1,s2)
+                        | _ , _ => None
+                      end
+                    | _ , _ => None
+                  end
+                | _      => None
+              end
+            | None => None
+          end
+      end
+  end.
 
-Definition lookup_gen_list : forall (t t' : ty) (l : gen_list), 
-  {t1 | in_gen_list t t' t1 l} +
-  {~ exists t1, in_gen_list t t' t1 l}.
-  refine (fix F (t t' : ty) (l : gen_list) {struct l} : 
-    {t1 | in_gen_list t t' t1 l} + {~ exists t1, in_gen_list t t' t1 l} :=
-    match l return {t1 | in_gen_list t t' t1 l} + {~ exists t1, in_gen_list t t' t1 l} with
-      | nil => inright _ _
-      | (a,b,c) :: l'   => match eq_ty_dec a t, eq_ty_dec b t' with 
-                             | left _, left _ => inleft _ _
-                             | left _, right _ => match F t t' l' with
-                                                    | inleft _  => inleft _ _
-                                                    | inright _ => inright _ _
-                                                  end
-                             | right _, left _ => match F t t' l' with
-                                                    | inleft _ => inleft _ _
-                                                    | inright _ => inright _ _
-                                                  end
-                             | right _, right _ =>  match F t t' l' with
-                                                    | inleft _ => inleft _ _
-                                                    | inright _ => inright _ _
-                                                  end
-                           end    
-    end) ; try (intro H ; destruct H as [t1 H]) ; subst ; try congruence.  
-    inverts* H. 
-    exists* c. destruct s as [t1 Hs].
-    exists* t1.
-    inverts* H.
-    destruct s as [t1 Hs]. exists* t1.
-    inverts * H.
-    destruct s as [t1 Hs]. exists* t1.
-    inverts* H. 
+Lemma wf_gen_list_in : forall (t t' t1 : ty) (l : gen_list),
+  wf_gen_list l -> In (t,t',t1) l -> t1 <=: t /\ t1 <=: t'.
+Proof.
+  intros t t' t1 l Hwf Hin.
+  induction Hwf. inverts* Hin.
+  split ; simpl in Hin ; destruct Hin. inverts* H1.
+  apply IHHwf in H1. destruct* H1. inverts* H1.
+  apply IHHwf in H1. destruct* H1.
+Qed.
+
+Definition lookup_gen_list : forall (l : gen_list), 
+  wf_gen_list l -> forall (t t' : ty), {t1 | In (t,t',t1) l} + {~ exists t1, In (t,t',t1) l}.
+  intros l Hwf.
+  refine ((fix F (l : gen_list) (t t' : ty) {struct l} : {t1 | In (t,t',t1) l} + {~ exists t1, In (t,t',t1) l} := 
+             match l return {t1 | In (t,t',t1) l} + {~ exists t1, In (t,t',t1) l} with
+               | nil => inright _ _
+               | x :: l' =>
+                 match x with
+                   | (x1,x2,x3) => 
+                     match eq_ty_dec x1 t, eq_ty_dec x2 t' with
+                       | left _, left _ => inleft _ (exist _ x3 _)
+                       | right _, left _ =>
+                         match F l' t t' with
+                           | inleft (exist y _)  => inleft _ (exist _ y _)
+                           | inright _ => inright _ _
+                         end
+                       | left _, right _ =>
+                         match F l' t t' with
+                           | inleft (exist y _)  => inleft _ (exist _ y _)
+                           | inright _ => inright _ _
+                         end
+                       | right _, right _ =>
+                         match F l' t t' with
+                           | inleft (exist y _) => inleft _ (exist _ y _)
+                           | inright _ => inright _ _
+                         end 
+                     end
+                 end
+             end
+          ) l) ;
+    try intro H ; simpl ; try subst ;
+      repeat 
+        (match goal with
+          | [H : In _ _ |- _] => simpl in H; destruct* H
+          | [H : ex _ |- _] => destruct H
+          | [H : _ = _ |- _] => try congruence
+          | [|- ?X = ?X \/ _] => branch* 1
+          | [H : ?X |- _ \/ ?X] => branch* 2
+         end).
 Defined.
-
+ 
 Definition max_list_nat_dec : forall (l : list nat), 
                                 {n | forall n', In n' l -> n >= n'} + {l = nil}.
    refine (fix F (l : list nat) {struct l} : {n | forall n', In n' l -> n >= n'} + {l = nil} :=
@@ -225,21 +263,47 @@ Definition fresh : forall (t t' : ty) (l : gen_list), {n | fresh_nat n (fv t ++ 
 Defined.
 
 Definition least_gen (t1 t2 t : ty) : Prop :=
-     t <=: t1 /\ t <=: t2 /\ forall u, u <=: t1 /\ u <=: t2 -> u <=: t.
-
-Ltac s :=
+   t <=: t1 /\ t <=: t2 /\ (forall u, u <=: t1 /\ u <=: t2 -> u <=: t).
+   
+Ltac s := try intros ; substs ;
+          try (exists* (@nil (ty * ty * ty)%type)) ; try congruence ;
     match goal with
       | [H : _ /\ _ |- _] => destruct H
       | [H : ex _ |- _] => destruct H
-    end.
+      | [|- _ /\ _] => split
+      | [|- (tvar ?x) <=: ?t] => 
+           unfolds ; exists (M.add x t (@M.empty ty)) ;
+             simpl ; rewrite add_o ; case_if* 
+      | [|- ?t <=: ?t] => apply leq_ty_refl 
+      | [H :_ <=: (tvar _) |- _] => 
+           apply leq_var_inv_r in H ; destruct H ; subst
+      | [H : _ <=: (tcon _) |- _] =>
+           apply leq_con_inv_r in H ; destruct H
+      | [H : (tcon _) <=: (tapp _ _) |- _] => 
+          unfolds in H ; let s := fresh "s" in destruct H as [s H] ; inverts* H
+      | [H : In (?t, _, ?t1) ?l, H1 : wf_gen_list ?l  |- ?t1 <=: ?t] =>
+          destruct* (wf_gen_list_in _ _ _ H1 H)
+      | [H : In (_, ?t, ?t1) ?l, H1 : wf_gen_list ?l |- ?t1 <=: ?t] =>
+          destruct* (wf_gen_list_in _ _ _ H1 H)
+      | [H : least_gen _ _ ?p |- _] => unfolds in H ;
+              let H1 := fresh "H1" in
+                let H2 := fresh "H2" in
+                  let H3 := fresh "H3" in
+                    destruct H as [H1 [H2 H3]]
+      | [p : (ty * gen_list)%type |- _] => let t := fresh "t" in destruct p as [p t] ; simpl in *  
+      end.
 
-Ltac my_simpl := try (repeat s).
+Ltac my_simpl :=  
+  try (repeat (unfold least_gen ; simpl ; s)) ; eauto.
 
-Definition lgen_aux : forall (t1 t2 : ty) (l : gen_list), {p | least_gen t1 t2 (@fst ty gen_list p) /\ exists l', (@snd ty gen_list p) = l' ++ l}.
-   refine (fix F (t1 t2 : ty) (l : gen_list) : {p | least_gen t1 t2 (@fst ty gen_list p) /\ exists l', (@snd ty gen_list p) = l' ++ l} :=
-     match t1,t2 return {p | least_gen t1 t2 (@fst ty gen_list p) /\ exists l', (@snd ty gen_list p) = l' ++ l} with
+Definition lgen_aux : forall (l : gen_list) (t1 t2 : ty), 
+  wf_gen_list l -> {p | least_gen t1 t2 (@fst ty gen_list p)}.
+   intros l t1 t2 Hwf ; 
+   refine ((fix F (t1 t2 : ty) (l : gen_list) :  {p | least_gen t1 t2 (@fst ty gen_list p)} :=
+     match t1,t2 
+       return {p | least_gen t1 t2 (@fst ty gen_list p)} with
        | tvar n, tvar n' => 
-           match lookup_gen_list (tvar n) (tvar n') l with
+           match lookup_gen_list _ (tvar n) (tvar n') with
              | inleft (exist t _) => exist _ (t,l) _
              | inright _  =>
                   match fresh (tvar n) (tvar n') l with
@@ -247,16 +311,15 @@ Definition lgen_aux : forall (t1 t2 : ty) (l : gen_list), {p | least_gen t1 t2 (
                   end
            end
        | tvar n, tcon n' => 
-            match lookup_gen_list (tvar n) (tcon n') l with
+            match lookup_gen_list _ (tvar n) (tcon n') with
               | inleft (exist t _) => exist _ (t,l) _
               | inright _ => 
                    match fresh (tvar n) (tvar n') l with
                      | exist x _ => exist _ ((tvar x), ((tvar n, tcon n', tvar x) :: l)) _
                    end
-
             end
        | tvar n, tapp f r => 
-            match lookup_gen_list (tvar n) (tapp f r) l with
+            match lookup_gen_list _ (tvar n) (tapp f r) with
               | inleft (exist t _) => exist _ (t,l) _
               | inright _ =>
                 match fresh (tvar n) (tapp f r) l with
@@ -264,7 +327,7 @@ Definition lgen_aux : forall (t1 t2 : ty) (l : gen_list), {p | least_gen t1 t2 (
                 end
             end
        | tcon n, tvar n' => 
-            match lookup_gen_list (tcon n) (tvar n') l with
+            match lookup_gen_list _ (tcon n) (tvar n') with
               | inleft (exist t _) => exist _ (t,l) _
               | inright _ =>
                   match fresh (tcon n) (tvar n') l with
@@ -275,7 +338,7 @@ Definition lgen_aux : forall (t1 t2 : ty) (l : gen_list), {p | least_gen t1 t2 (
             match eq_nat_dec n n' with
               | left _ => exist _ ((tcon n), l) _
               | right _ => 
-                match lookup_gen_list (tcon n) (tcon n') l with
+                match lookup_gen_list _ (tcon n) (tcon n') with
                   | inleft (exist t _) => exist _ (t,l) _
                   | inright _ =>
                         match fresh (tcon n) (tcon n') l with
@@ -284,7 +347,7 @@ Definition lgen_aux : forall (t1 t2 : ty) (l : gen_list), {p | least_gen t1 t2 (
                 end
             end
        | tcon n, tapp f r => 
-            match lookup_gen_list (tcon n) (tapp f r) l with
+            match lookup_gen_list _ (tcon n) (tapp f r) with
               | inleft (exist t _) => exist _ (t,l) _
               | inright _ =>
                  match fresh (tcon n) (tapp f r) l with
@@ -292,7 +355,7 @@ Definition lgen_aux : forall (t1 t2 : ty) (l : gen_list), {p | least_gen t1 t2 (
                  end
             end
        | tapp f r, tvar n' => 
-            match lookup_gen_list (tapp f r) (tvar n') l with
+            match lookup_gen_list _ (tapp f r) (tvar n') with
               | inleft (exist t _) => exist _ (t,l) _
               | inright _ =>
                 match fresh (tapp f r) (tvar n') l with
@@ -300,7 +363,7 @@ Definition lgen_aux : forall (t1 t2 : ty) (l : gen_list), {p | least_gen t1 t2 (
                 end
             end
        | tapp f r, tcon n' => 
-            match lookup_gen_list (tapp f r) (tcon n') l with
+            match lookup_gen_list _ (tapp f r) (tcon n') with
               | inleft (exist t _) => exist _ (t,l) _
               | inright _ =>
                  match fresh (tapp f r) (tvar n') l with
@@ -309,138 +372,12 @@ Definition lgen_aux : forall (t1 t2 : ty) (l : gen_list), {p | least_gen t1 t2 (
             end
        | tapp f r, tapp f' r' => 
             match F f f' l with
-              | exist p _ => match F r r' (snd p) with
-                               | exist p' _ => exist _ (tapp (fst p) (fst p'), snd p') _
-                             end
+              | exist p _ => 
+                match F r r' (snd p) with
+                  | exist p' _ => exist _ (tapp (fst p) (fst p'), snd p') _
+                end
             end
-     end) ; unfold least_gen ; try (repeat split) ; simpl fst in * ; 
-             try intros ; my_simpl ; try (exists* (@nil (ty * ty * ty)) ; fail).
-          destruct (leq_var_inv_r _ _ H) ; subst.
-          exists (M.add x (tvar x0) (@M.empty ty)). simpl. rewrite add_o. 
-          destruct* (eq_dec x x). 
-          destruct H. destruct (leq_var_inv_r _ _ H1) ; subst.
-          exists (M.add x1 (tvar x) (@M.empty ty)). simpl. rewrite add_o. 
-          destruct* (eq_dec x1 x1).
-          exists* ((tvar n, tvar n', tvar x) :: nil).
-          destruct (leq_var_inv_r _ _ H) ; subst.
-          destruct (leq_con_inv_r _ _ H2) ; subst.
-          destruct H1 as [s1 H1] ; inverts* H1.
-          destruct H3 as [n1 H3] ; subst.
-          exists (M.add n1 (tvar x) (@M.empty ty)). simpl. rewrite add_o.
-          destruct* (eq_dec n1 n1).
-          destruct (leq_var_inv_r _ _ H1) ; subst.
-          destruct (leq_con_inv_r _ _ H2) ; subst.
-          congruence.
-          exists (M.add x0 (tvar x) (@M.empty ty)). simpl. rewrite add_o.
-          destruct* (eq_dec x0 x0).
-          exists* ((tvar n, tcon n', tvar x) :: nil).
-          destruct (leq_var_inv_r _ _ H) ; subst.
-          destruct (leq_var_inv_r _ _ H1) ; subst.
-          exists (M.add x0 (tvar x) (@M.empty ty)). simpl. rewrite add_o.
-          destruct* (eq_dec x0 x0).
-          destruct (leq_var_inv_r _ _ H1) ; subst.
-          exists (M.add x0 (tvar x) (@M.empty ty)). simpl. rewrite add_o.
-          destruct* (eq_dec x0 x0).
-          exists* ((tvar n, tapp f r, tvar x) :: nil).       
-          destruct (leq_var_inv_r _ _ H0) ; subst.
-          destruct (leq_var_inv_r _ _ H2) ; subst.
-          exists (M.add x0 (tvar x) (@M.empty ty)). simpl. rewrite add_o.
-          destruct* (eq_dec x0 x0).
-          destruct (leq_var_inv_r _ _ H2) ; subst.
-          exists (M.add x0 (tvar x) (@M.empty ty)). simpl. rewrite add_o.
-          destruct* (eq_dec x0 x0).
-          exists* ((tcon n, tvar n', tvar x) :: nil).
-          subst. 
-          destruct (leq_con_inv_r _ _ H1) ; subst.
-          apply leq_ty_refl.
-          destruct H3 as [n1 H3] ; subst.
-          exists (M.add n1 (tcon n') (@M.empty ty)). simpl. rewrite add_o.
-          destruct* (eq_dec n1 n1).
-          destruct (leq_con_inv_r _ _ H) ; subst.
-          destruct H as [s1 H]. simpl in H.
-          congruence. destruct H3 as [n1 H3] ; subst.
-          destruct (leq_con_inv_r _ _ H1) ; subst.
-          destruct H2 as [n2 H2] ; simpl in H2 ; congruence.
-          destruct H3 as [n3 H3] ; subst.
-          exists (M.add n3 (tvar n1) (@M.empty ty)). simpl. rewrite add_o.
-          destruct* (eq_dec n3 n3).
-          destruct (leq_con_inv_r _ _ H1) ; subst.
-          destruct H2 as [n2 H2] ; simpl in H2 ; congruence.
-          destruct H3 as [n3 H3] ; subst.
-          exists (M.add n3 (tvar x) (@M.empty ty)). simpl. rewrite add_o.
-          destruct* (eq_dec n3 n3).
-          exists* ((tcon n, tcon n', tvar x) :: nil).
-          destruct (leq_con_inv_r _ _ H) ; subst.
-          destruct H0 as [s1 H0] ; inverts* H0.
-          destruct H3 as [n1 H3] ; subst.
-          destruct (leq_app_inv_r _ _ _ H2) ; subst.
-          destruct H3 as [l1 [r1 H3]] ; subst.
-          destruct H1 as [s1 H1] ; inverts* H1.
-          destruct H3 as [n2 H3] ; subst.
-          exists (M.add n2 (tvar n1) (@M.empty ty)). simpl. rewrite add_o.
-          destruct* (eq_dec n2 n2).     
-          destruct (leq_app_inv_r _ _ _ H2) ; subst.
-          destruct H3 as [l1 [r1 H3]] ; subst.
-          destruct H1 as [s1 H1] ; inverts* H1.
-          destruct H3 as [n2 H3] ; subst.
-          exists (M.add n2 (tvar x) (@M.empty ty)). simpl. rewrite add_o.
-          destruct* (eq_dec n2 n2).
-          exists* ((tcon n, tapp f r, tvar x) :: nil).
-          destruct (leq_app_inv_r _ _ _ H).
-          destruct H3 as [l1 [r1 H3]] ; subst.
-          destruct H0 as [s1 H0] ; inverts* H0.
-          destruct H3 as [n1 H3] ; subst.
-          destruct (leq_app_inv_r _ _ _ H1).
-          destruct H3 as [l1 [r1 H3]] ; subst.
-          destruct H2 as [s1 H2] ; inverts* H2.
-          destruct H3 as [n3 H3] ; subst.
-          exists (M.add n3 (tvar n1) (@M.empty ty)). simpl. rewrite add_o.
-          destruct* (eq_dec n3 n3).     
-          destruct (leq_var_inv_r _ _ H2) ; subst.
-          exists (M.add x0 (tvar x) (@M.empty ty)). simpl. rewrite add_o.
-          destruct* (eq_dec x0 x0).
-          exists* ((tapp f r, tvar n', tvar x) :: nil).
-          destruct (leq_app_inv_r _ _ _ H).
-          destruct H3 as [l1 [r1 H3]] ; subst.
-          destruct H0 as [s0 H0] ; inverts* H0.
-          destruct H3 as [n1 H3] ; subst.
-          destruct (leq_con_inv_r _ _ H2) ; subst.
-          destruct H1 as [s1 H1] ; inverts* H1.
-          destruct H3 as [n3 H3] ; subst.
-          exists (M.add n3 (tvar n1) (@M.empty ty)). simpl. rewrite add_o.
-          destruct* (eq_dec n3 n3).          
-          destruct (leq_con_inv_r _ _ H2) ; subst.
-          destruct H1 as [s1 H1] ; inverts* H1.
-          destruct H3 as [n3 H3 ] ; subst.
-          exists (M.add n3 (tvar x) (@M.empty ty)). simpl. rewrite add_o.
-          destruct* (eq_dec n3 n3).
-          exists* ((tapp f r, tcon n', tvar x) :: nil).   
-          
-          destruct p ; destruct p'. simpl fst in *. simpl snd in *.
-          unfolds in H3 ; unfolds in H5 ; unfolds in H1 ; unfolds in H2.
-          destruct (leq_app_inv_r _ _ _ H1).
-          destruct H7 as [l1 [r1 H7]] ; subst. 
-          destruct H1 as [s1 H1]. destruct H2 as [s2 H2].
-          destruct (subst_app_compat _ _ _ _ _ H1) as [H11 H12].
-          destruct H2 as [s2 H2].
-          apply subst_app_compat in H2. destruct H1 as [H11 H12] ; destruct H2 as [H21 H22].
-          destruct H as [s3 H] ; apply subst_app_compat in H ; destruct H as [H31 H32].
-          destruct H0 as [s4 H0] ; apply subst_app_compat in H0 ; destruct H0 as [H41 H42].
-          
-          destruct (leq_app_inv _ _ _ _ H) as [s1 [H11 H12]].
-          destruct (leq_app_inv _ _ _ _ H0) as [s2 [H21 H22]].
-          destruct (leq_app_inv _ _ _ _ H1) as [s3 [H31 H32]].
-          destruct (leq_app_inv _ _ _ _ H2) as [s4 [H41 H42]].
-          apply (H5 H11) with (u := l1) in H21.
-          apply (H3 H12) with (u := r1) in H22.
-          apply leq_app_inv1 ; auto.
-          splits*. splits*.
-          destruct H7 as [n3 H7] ; subst.
-          exists (M.add n3 (tapp t t0) (@M.empty ty)). simpl. rewrite add_o.
-          destruct* (eq_dec n3 n3). 
-          destruct p ; destruct p' ; simpl fst in *; simpl snd in *.
-          exists (x ++ x0). rewrite H0. rewrite H2. rewrite app_assoc.
-          auto.
- Defined. 
+     end) t1 t2 l) ; my_simpl.
+Defined. 
 
 Definition lgen (t t' : ty) := lgen_aux t t' nil.

@@ -1,4 +1,4 @@
-Require Import LibTactics Ty Subst.
+Require Import LibTactics Ty Subst List.
 
 Include SUBST.
 
@@ -44,15 +44,23 @@ Module TYORDER.
       introv H. unfolds in H. destruct H as [s H]. induction t ; try (inverts* H ; fail).
     Qed.
 
+    Lemma leq_con_inv_l1 : forall t n, (tcon n) <=: t -> t = tcon n \/ exists n', t = tvar n'.
+    Proof.
+      introv H ; destruct H as [s H] ; induction t ; try (inverts* H ; fail).
+    Qed.
+
     Lemma leq_app_inv_r : forall t l r, t <=: (tapp l r) -> (exists l' r', t = tapp l' r') \/ (exists n', t = tvar n').
     Proof.
       introv H. unfolds in H. destruct H as [s H]. induction t ; try (inverts* H ; fail).
     Qed.
 
-    Lemma subst_app_compat : forall l l' r r' s, apply_subst_on_ty s (tapp l r) = (tapp l' r') <->
-                                                 apply_subst_on_ty s l = l' /\ apply_subst_on_ty s r = r'.
+    Lemma restrict_app_compat : forall l l' r r', (exists s, apply_subst_on_ty (restrict s (fv l)) l = l' /\
+                                                            apply_subst_on_ty (restrict s (fv r)) r = r') -> (tapp l r) <=: (tapp l' r').
     Proof.
-      intros l l' r r' s ; split ; intros H ; inverts* H.
+      intros l l' r r' H.
+      destruct H as [s [Hl Hr]].
+      exists s ; simpl ; fequals.
+      rewrite* restrict_idem in Hl.
+      rewrite* restrict_idem in Hr.
     Qed.
-                         
 End TYORDER.
