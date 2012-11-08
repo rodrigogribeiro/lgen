@@ -25,37 +25,6 @@ Inductive leq_ground : ground_ty -> ground_ty -> Prop :=
 
 Hint Constructors leq_ground.
 
-Obligation Tactic := intuition ; program_simpl ; 
-                       repeat 
-                         (match goal with
-                            | [H : leq_ground _ _ |- _] => inverts* H
-                          end).
-
-Program Fixpoint leq_ground_dec (t t' : ground_ty) : {leq_ground t t'} + {~ leq_ground t t'} :=
-  match t,t' with
-    | skolem n, t' => left _
-    | con n, con n'=>
-        match eq_nat_dec n n' with
-           | left _ => left _
-           | right _ => right _
-        end
-    | con _, skolem _ =>
-        right _ 
-    | con _, app _ _ => 
-        right _ 
-    | app l r, app l' r' =>
-        match leq_ground_dec l l', leq_ground_dec r r' with
-          | left _, left _ =>  left _
-          | left _, right _ => right _
-          | right _, left _ => right _
-          | right _, right _ => right _
-        end
-    | app _ _, con _ =>
-        right _
-    | app _ _, skolem _ => 
-        right _
-  end.
-
 Fixpoint skolemize (t : ty) : ground_ty :=
   match t with
     | tvar n => skolem n
@@ -138,8 +107,6 @@ Program Fixpoint lookup_gen_list (t t' : ground_ty) (l : gen_list) :
 Definition lgen_ground (t t' t1 : ground_ty) :=
   leq_ground t1 t /\ leq_ground t1 t' /\ forall u, leq_ground u t /\ leq_ground u t' -> leq_ground u t1.
 
-Definition lgen_state := (ground_ty * (gen_list * nat)%type)%type.
-
 Obligation Tactic := 
            unfold lgen_ground in * ; program_simpl ; intuition ; 
                repeat (match goal with 
@@ -206,3 +173,9 @@ Program Fixpoint lgen_ground_aux (t t' : ground_ty) (l : gen_list) (m : nat) : {
               end
         end 
   end.
+
+Program Definition lgen (t t' : ground_ty) := 
+  match max_list (skolem_vars t ++ skolem_vars t') with
+    v => fst (lgen_ground_aux t t' nil v)
+  end.
+  
