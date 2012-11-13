@@ -1,50 +1,35 @@
 Set Implicit Arguments.
 
 Require Import List Program.
+Require Import LibTactics Omega Arith_base.
 
-Require Import LibTactics Omega.
-Require Import TyOrder Subst Ty Arith_base.
+Inductive ty : Type :=
+  | var : nat -> ty
+  | con : nat -> ty
+  | app : ty -> ty -> ty.
 
-Include SUBST.
-Include TYORDER.
-
-Inductive ground_ty : Type :=
-  | skolem : nat -> ground_ty
-  | con : nat -> ground_ty
-  | app : ground_ty -> ground_ty -> ground_ty.
-
-Definition eq_ground_ty_dec : forall (t t' : ground_ty) , {t = t'} + {t <> t'}.
+Definition eq_ty_dec : forall (t t' : ty) , {t = t'} + {t <> t'}.
    pose eq_nat_dec.
    decide equality.
 Defined.
 
-Inductive leq_ground : ground_ty -> ground_ty -> Prop :=
-  | leq_skolem : forall n t, leq_ground (skolem n) t
-  | leq_con : forall n, leq_ground (con n) (con n)
-  | leq_app : forall l l' r r', leq_ground l l' -> leq_ground r r' -> leq_ground (app l r) (app l' r').
+Inductive leq_ty : ty -> ty -> Prop :=
+  | leq_var : forall n t, leq_ty (var n) t
+  | leq_con : forall n, leq_ty (con n) (con n)
+  | leq_app : forall l l' r r', leq_ty l l' -> leq_ty r r' -> leq_ty (app l r) (app l' r').
 
-Hint Constructors leq_ground.
+Hint Constructors leq_ty.
 
-Fixpoint skolemize (t : ty) : ground_ty :=
+Fixpoint fv (t : ty) : list nat :=
   match t with
-    | tvar n => skolem n
-    | tcon n => con n
-    | tapp l r => app (skolemize l) (skolemize r)
-  end.
-
-Fixpoint unskolemize (t : ground_ty) : ty :=
-  match t with
-    | skolem n => tvar n
-    | con n => tcon n
-    | app l r => tapp (unskolemize l) (unskolemize r)
-  end.
-
-Fixpoint skolem_vars (t : ground_ty) : list nat :=
-  match t with
-    | skolem n => n :: nil
+    | var n => n :: nil
     | con n    => nil
-    | app l r  => skolem_vars l ++ skolem_vars r 
+    | app l r  => fv l ++ fv r 
   end.
+
+Notation "'[' x ']'" := (exist _ x _).
+Notation "'[[' x ']]'" := (inleft _ [x]).
+Notation "!!" := (inright _ _).
 
 Obligation Tactic := program_simpl ; intuition ; 
               (repeat (match goal with
@@ -65,7 +50,7 @@ Program Fixpoint max_list (l : list nat) : {n | forall n', In n' l -> n > n'} :=
         end
   end.
 
-Definition gen_list := list (ground_ty * ground_ty * nat)%type.
+Definition gen_list := list (ty * ty * nat)%type.
 
 Obligation Tactic := program_simpl ; intuition ;
      repeat 
@@ -76,18 +61,18 @@ Obligation Tactic := program_simpl ; intuition ;
           | [H : _ = _ |- _] => inverts* H
         end).
 
-Program Fixpoint lookup_gen_list (t t' : ground_ty) (l : gen_list) : 
+Program Fixpoint lookup_gen_list (t t' : ty) (l : gen_list) : 
   {n | In (t,t',n) l} + {~ exists n, In (t,t',n) l} :=
   match l with
     | nil => inright _ _
     | x :: l' => 
         match x with
           | (a,b,c) => 
-              match eq_ground_ty_dec t a, eq_ground_ty_dec b t' with
+              match eq_ty_dec t a, eq_ty_dec b t' with
                 | left _, left _ => inleft _ (exist _ c _)
                 | right _, left _ => 
                     match lookup_gen_list t t' l' with
-                      | inleft x => inleft _ x
+                      | inleft x  => inleft _ x
                       | inright _ => inright _ _
                     end
                 | left _, right _ => 
@@ -104,78 +89,85 @@ Program Fixpoint lookup_gen_list (t t' : ground_ty) (l : gen_list) :
         end
   end.
 
-Definition lgen_ground (t t' t1 : ground_ty) :=
-  leq_ground t1 t /\ leq_ground t1 t' /\ forall u, leq_ground u t /\ leq_ground u t' -> leq_ground u t1.
+Definition least_gen (t t' t1 : ty) :=
+  leq_ty t1 t /\ leq_ty t1 t' /\ forall u, leq_ty u t /\ leq_ty u t' -> leq_ty u t1.
 
 Obligation Tactic := 
-           unfold lgen_ground in * ; program_simpl ; intuition ; 
+           unfold least_gen in * ; program_simpl ; intuition ; 
                repeat (match goal with 
-                        | [H : leq_ground _ _ |- _] => inverts* H
+                        | [H : leq_ty _ _ |- _] => inverts* H
                         | [H : ?n = ?n -> False |- _] => elim H ; auto
                        end).
 
-Program Fixpoint lgen_ground_aux (t t' : ground_ty) (l : gen_list) (m : nat) : {p | lgen_ground t t' (@fst ground_ty (gen_list * nat) p)} :=
+Program Fixpoint lgen_aux (t t' : ty) (l : gen_list) (m : nat) : {p | least_gen t t' (@fst ty (gen_list * nat) p)} :=
   match t,t' with
-    | skolem n, skolem n' =>
+    | var n, var n' =>
         match eq_nat_dec n n' with
-          | left _  => exist _ (skolem n, (l, m)) _
+          | left _  => exist _ (var n, (l, m)) _
           | right _ => 
-              match lookup_gen_list (skolem n) (skolem n') l with 
-                | inleft (exist x _) => exist _ (skolem x, (l,m)) _
-                | inright _ => exist _ (skolem m, ((skolem n, skolem n',m) :: l, S m)) _
+              match lookup_gen_list (var n) (var n') l with 
+                | inleft (exist x _) => exist _ (var x, (l,m)) _
+                | inright _ => exist _ (var m, ((var n, var n',m) :: l, S m)) _
               end
         end
-    | skolem n, con n' =>
-        match lookup_gen_list (skolem n) (con n') l with
-          | inleft (exist x _) => exist _ (skolem x, (l,m)) _
-          | inright _ => exist _ (skolem m, ((skolem n, con n',m) :: l, S m)) _
+    | var n, con n' =>
+        match lookup_gen_list (var n) (con n') l with
+          | inleft (exist x _) => exist _ (var x, (l,m)) _
+          | inright _ => exist _ (var m, ((var n, con n',m) :: l, S m)) _
         end
-    | skolem n, app f r =>
-        match lookup_gen_list (skolem n) (app f r) l with
-          | inleft (exist x _) => exist _ (skolem x, (l,m)) _
-          | inright _ => exist _ (skolem m, ((skolem n,app f r,m) :: l, S m)) _            
+    | var n, app f r =>
+        match lookup_gen_list (var n) (app f r) l with
+          | inleft (exist x _) => exist _ (var x, (l,m)) _
+          | inright _ => exist _ (var m, ((var n,app f r,m) :: l, S m)) _            
         end
     | con n, con n' => 
         match eq_nat_dec n n' with
           | left _ => exist _ (con n, (l,m)) _
           | right _ => 
               match lookup_gen_list (con n) (con n') l with
-                | inleft (exist x _) => exist _ (skolem x, (l,m)) _
-                | inright _ => exist _ (skolem m, ((con n,con n',m) :: l, S m)) _
+                | inleft (exist x _) => exist _ (var x, (l,m)) _
+                | inright _ => exist _ (var m, ((con n,con n',m) :: l, S m)) _
               end
         end
-    | con n, skolem n' =>
-        match lookup_gen_list (con n) (skolem n') l with
-          | inleft (exist x _) => exist _ (skolem x, (l,m)) _
-          | inright _ => exist _ (skolem m, ((con n, skolem n',m) :: l, S m)) _
+    | con n, var n' =>
+        match lookup_gen_list (con n) (var n') l with
+          | inleft (exist x _) => exist _ (var x, (l,m)) _
+          | inright _ => exist _ (var m, ((con n, var n',m) :: l, S m)) _
         end  
     | con n, app f r =>
         match lookup_gen_list (con n) (app f r) l with
-          | inleft (exist x _) => exist _ (skolem x, (l,m)) _
-          | inright _ => exist _ (skolem m, ((con n, app f r,m) :: l, S m)) _
+          | inleft (exist x _) => exist _ (var x, (l,m)) _
+          | inright _ => exist _ (var m, ((con n, app f r,m) :: l, S m)) _
         end    
     | app f r, con n =>
         match lookup_gen_list (app f r) (con n) l with
-          | inleft (exist x _) => exist _ (skolem x, (l,m)) _
-          | inright _ => exist _ (skolem m, ((app f r, con n,m) :: l, S m)) _
+          | inleft (exist x _) => exist _ (var x, (l,m)) _
+          | inright _ => exist _ (var m, ((app f r, con n,m) :: l, S m)) _
         end  
-    | app f r, skolem n =>
-        match lookup_gen_list (app f r) (skolem n) l with
-          | inleft (exist x _) => exist _ (skolem x, (l,m)) _
-          | inright _ => exist _ (skolem m, ((app f r, skolem n,m) :: l, S m)) _
+    | app f r, var n =>
+        match lookup_gen_list (app f r) (var n) l with
+          | inleft (exist x _) => exist _ (var x, (l,m)) _
+          | inright _ => exist _ (var m, ((app f r, var n,m) :: l, S m)) _
         end    
     | app f r, app f' r' =>
-        match lgen_ground_aux f f' l m with
+        match lgen_aux f f' l m with
           | (t,(l',m')) => 
-              match lgen_ground_aux r r' l' m' with
+              match lgen_aux r r' l' m' with
                 | (t', (l'', m'')) => 
                     exist _ (app t t', (l'', m'')) _
               end
         end 
   end.
 
-Program Definition lgen (t t' : ground_ty) := 
-  match max_list (skolem_vars t ++ skolem_vars t') with
-    v => fst (lgen_ground_aux t t' nil v)
-  end.
-  
+Definition lgen (t t' : ty) : {t1 | least_gen t t' t1}.
+   destruct (max_list (fv t ++ fv t')) as [v H].
+   destruct (lgen_aux t t' nil v).
+   destruct x. simpl in *. exists* t0.
+Defined.
+   
+Eval compute in lgen (app (app (con 0) (var 1)) (con 1)) (app (app (con 0) (con 2)) (var 1)).
+
+Definition tint := con 1.
+Definition tfloat := con 2.
+
+Eval compute in lgen (app (app (con 0) tint) tint) (app (app (con 0) tfloat) tfloat).
