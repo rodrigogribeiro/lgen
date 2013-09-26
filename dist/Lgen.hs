@@ -172,11 +172,3 @@ lcg l =
      Prelude.Just s -> Prelude.Just (lgen x s);
      Prelude.Nothing -> Prelude.Just x}}
 
-tint :: Coq_ty
-tint =
-  Coq_con (Datatypes.S Datatypes.O)
-
-tfloat :: Coq_ty
-tfloat =
-  Coq_con (Datatypes.S (Datatypes.S Datatypes.O))
-

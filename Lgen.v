@@ -1,7 +1,7 @@
 Set Implicit Arguments.
 
-Require Import List Program.
-Require Import LibTactics Omega Arith_base.
+Require Import List Omega Arith_base.
+Require Import LibTactics.
 
 Inductive ty : Type :=
   | var : nat -> ty
@@ -43,65 +43,48 @@ Fixpoint fv (t : ty) : list nat :=
     | app l r => fv l ++ fv r
   end.
 
-Obligation Tactic := program_simpl ; intuition ;
-              (repeat (match goal with
-                       | [H : _ \/ _ |- _] => destruct H ; subst
-                       | [H : context[In _ _ -> _],
-                          H1 : In _ _ |- _] => apply H in H1 ; try omega
-                       end)).
-
-Program Fixpoint max_list (l : list nat) : {n | forall n', In n' l -> n > n'} :=
-  match l with
-    | nil => 0
-    | x :: l' =>
-        match max_list l' with
-          | x' => match le_gt_dec x x' with
-                    | left _ => S x'
-                    | right _ => S x
-                  end
-        end
-  end.
+Definition max_list : forall (l : list nat), {n | forall n', In n' l -> n > n'}.
+  refine (fix max_list (l : list nat) : {n | forall n', In n' l -> n > n'} :=
+            match l with
+              | nil => exist _ 0 _
+              | x :: l' => 
+                match max_list l' with
+                  exist x' _ =>
+                    match le_gt_dec x x' with
+                      | left _ => exist _ (S x') _
+                      | right _ => exist _ (S x) _
+                    end
+                end
+            end) ; clear max_list  ; simpl in * ; intuition ; 
+                   try (match goal with
+                          | [H : context[In _ _ -> _],
+                             H1 : In _ _ |- _] => apply H in H1 ; try omega
+                        end).
+Defined.
 
 Definition gen_list := list (ty * ty * nat)%type.
 
-Obligation Tactic :=  program_simpl ; intuition ;
-     repeat
-       (match goal with
-          | [H : ex _ |- _] => 
-              let v := fresh "v" in destruct H as [v H]
-          | [H : False |- _] => destruct H
-          | [H : _ \/ _ |- _] => destruct H
-          | [H : _ = _ |- _] => inverts* H
-        end). 
-
-
-Program Fixpoint lookup_gen_list (t t' : ty) (l : gen_list) :
-  {n | In (t,t',n) l} + {~ exists n, In (t,t',n) l} :=
-  match l with
-    | nil => inright _ _
-    | x :: l' =>
-        match x with
-          | (a,b,c) =>
-              match eq_ty_dec t a, eq_ty_dec b t' with
-                | left _, left _ => inleft _ (exist _ c _)
-                | right _, left _ =>
-                    match lookup_gen_list t t' l' with
-                      | inleft x => inleft _ x
-                      | inright _ => inright _ _
-                    end
-                | left _, right _ =>
-                    match lookup_gen_list t t' l' with
-                      | inleft x => inleft _ x
-                      | inright _ => inright _ _
-                    end
-                | right _, right _ =>
-                    match lookup_gen_list t t' l' with
-                      | inleft x => inleft _ x
-                      | inright _ => inright _ _
-                    end
-              end
-        end
-  end.
+Definition lookup_phi : forall (t  t' : ty) (l : gen_list), {n | In (t,t',n) l} + {~ exists n, In (t,t',n) l}.
+  refine (fix lookup_phi (t t' : ty)(l : gen_list) : {n | In (t,t',n) l} + {~ exists n, In (t,t',n) l} :=
+            match l with
+              | nil => inright _ _
+              | (a,b,c) :: l' => 
+                match eq_ty_dec t a, eq_ty_dec t' b with
+                   | left _ , left _ => inleft _ (exist _ c _)
+                   | _ , _           => 
+                     match lookup_phi t t' l' with
+                       | inleft (exist x _) => inleft _ (exist _ x _)
+                       | inright _ => inright _ _                         
+                     end
+                end
+            end) ; clear lookup_phi ; simpl in * ; intuition ; substs* ;
+                   repeat 
+                       (match goal with
+                         | [H : ex _ |- _] => 
+                            let v := fresh "v" in destruct H as [v H]
+                         | [H : _ = _ |- _] => inverts* H
+                        end ; intuition) ; jauto. 
+Defined.
   
 Definition least_gen (t t' t1 : ty) :=
   leq_ty t1 t /\ leq_ty t1 t' /\ forall u, leq_ty u t /\ leq_ty u t' -> leq_ty u t1.
@@ -120,7 +103,7 @@ Definition lgen_aux : forall (t t' : ty) (l : gen_list) (m : nat), {p | least_ge
           match eq_nat_dec n n' with
             | left _ => exist _ (con n, (l, m)) _
             | right _ =>
-                match lookup_gen_list t t' l with
+                match lookup_phi t t' l with
                   | inleft (exist x _) => exist _ (var x, (l,m)) _
                   | inright _ => exist _ (var m, ((con n, con n',m) :: l, S m)) _
                 end
@@ -133,7 +116,7 @@ Definition lgen_aux : forall (t t' : ty) (l : gen_list) (m : nat), {p | least_ge
               end
           end
         | a, b => 
-            match lookup_gen_list a b l with
+            match lookup_phi a b l with
                | inleft (exist x _) => exist _ (var x, (l,m)) _
                | inright _ => exist _ (var m, ((a, b, m) :: l, S m)) _
             end
@@ -164,9 +147,9 @@ Fixpoint least_gen_list (t : ty) (l : list ty) : Prop :=
     | x :: l' => exists t', least_gen_list t' l' /\ least_gen x t' t
   end.
 
-Definition lcg : forall (l : list ty), {t | least_gen_list t l} + {l = []}.   
-   refine (fix lcg (l : list ty) : {t | least_gen_list t l} + {l = []} :=
-              match l return {t | least_gen_list t l} + {l = []} with
+Definition lcg : forall (l : list ty), {t | least_gen_list t l} + {l = nil}.   
+   refine (fix lcg (l : list ty) : {t | least_gen_list t l} + {l = nil} :=
+              match l return {t | least_gen_list t l} + {l = nil} with
                 | nil => inright _ _
                 | x :: l' =>
                     match lcg l' with
